@@ -1,8 +1,11 @@
 package ldap
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -61,36 +64,56 @@ func c_interact(ldp unsafe.Pointer, flags C.uint, lp unsafe.Pointer, needp unsaf
 	l := (*Ldap)(lp)
 	need := (*C.sasl_interact_t)(needp)
 	for need.id != C.SASL_CB_LIST_END {
-		if l.interact != nil {
-			prompt := C.GoString(need.prompt)
-			challenge := C.GoString(need.challenge)
-			defresult := C.GoString(need.defresult)
+		prompt := C.GoString(need.prompt)
+		challenge := C.GoString(need.challenge)
+		defresult := C.GoString(need.defresult)
+		res := defresult
 
-			res, err := l.interact(int(need.id), prompt, challenge, defresult)
+		if l.interact != nil {
+			var err error
+			res, err = l.interact(int(need.id), prompt, challenge, defresult)
 			if err != nil {
 				l.interactError = err
 				return -1
 			}
-
-			need.result = unsafe.Pointer(C.CString(res))
-			need.len = C.uint(len(res))
-			l.interactStrings = append(l.interactStrings, need.result)
 		}
+
+		need.result = unsafe.Pointer(C.CString(res))
+		need.len = C.uint(len(res))
+		l.interactStrings = append(l.interactStrings, need.result)
 		need = (*C.sasl_interact_t)(unsafe.Pointer(uintptr(unsafe.Pointer(need)) + unsafe.Sizeof(*need)))
 	}
 
 	return 0
 }
 
-func Dial(url string, interact func(id int, prompt, challenge, defresult string) (string, error)) (*Ldap, error) {
+func Dial(urlstr string, interact func(id int, prompt, challenge, defresult string) (string, error)) (*Ldap, error) {
+
+	u, err := url.Parse(urlstr)
+	if err != nil {
+		return nil, err
+	}
 
 	l := &Ldap{}
 	l.interact = interact
 
-	urlstr := C.CString(url)
-	defer C.free(unsafe.Pointer(urlstr))
+	ret := C.int(-1)
+	_, addrs, _ := net.LookupSRV(u.Scheme, "tcp", u.Host)
+	for _, a := range addrs {
+		curl := C.CString(fmt.Sprintf("%s://%s", u.Scheme, net.JoinHostPort(a.Target, strconv.Itoa(int(a.Port)))))
+		ret = C.ldap_initialize(&l.p, curl)
+		C.free(unsafe.Pointer(curl))
+		if ret == 0 {
+			break
+		}
+	}
 
-	ret := C.ldap_initialize(&l.p, urlstr)
+	if ret != 0 {
+		curl := C.CString(urlstr)
+		ret = C.ldap_initialize(&l.p, curl)
+		C.free(unsafe.Pointer(curl))
+	}
+
 	if ret != 0 {
 		return nil, ErrLdap(ret)
 	}
@@ -110,7 +133,7 @@ func Dial(url string, interact func(id int, prompt, challenge, defresult string)
 		l.interactStrings = nil
 	}()
 
-	ret = C.do_bind(l.p, C.LDAP_SASL_AUTOMATIC, unsafe.Pointer(l))
+	ret = C.do_bind(l.p, C.LDAP_SASL_QUIET, unsafe.Pointer(l))
 
 	if l.interactError != nil {
 		l.Close()
@@ -160,6 +183,12 @@ func (l *Ldap) demarshalEntry(msg *C.LDAPMessage, msgValue reflect.Value, attrs 
 
 	for i, j := 0, 0; i < msgValue.NumField(); i++ {
 		ft := msgValue.Type().Field(i)
+
+		if ft.PkgPath != "" {
+			// private field
+			continue
+		}
+
 		fv := msgValue.Field(i)
 
 		if ft.Name == "Dn" {
@@ -194,7 +223,7 @@ func (l *Ldap) demarshalEntry(msg *C.LDAPMessage, msgValue reflect.Value, attrs 
 				pv = (**C.struct_berval)(unsafe.Pointer(uintptr(unsafe.Pointer(pv)) + unsafe.Sizeof(*pv)))
 			}
 
-		} else if ft.Type == reflect.TypeOf([][]byte{}) {
+		} else if ft.Type == reflect.TypeOf([][]byte{}) || ft.Type == reflect.TypeOf([]SID{}) {
 			numattr++
 			pv := vals
 			for *pv != nil {
@@ -202,6 +231,10 @@ func (l *Ldap) demarshalEntry(msg *C.LDAPMessage, msgValue reflect.Value, attrs 
 				fv.Set(reflect.Append(fv, reflect.ValueOf(s)))
 				pv = (**C.struct_berval)(unsafe.Pointer(uintptr(unsafe.Pointer(pv)) + unsafe.Sizeof(*pv)))
 			}
+
+		} else if ft.Type == reflect.TypeOf([]byte{}) || ft.Type == reflect.TypeOf(SID{}) {
+			s := C.GoBytes(unsafe.Pointer((*vals).bv_val), C.int((*vals).bv_len))
+			fv.Set(reflect.ValueOf(s))
 
 		} else {
 			numattr++
@@ -256,7 +289,13 @@ func (l *Ldap) demarshalEntryMessage(first *C.LDAPMessage, outFn func(reflect.Va
 
 	for msg := C.ldap_first_entry(l.p, first); msg != nil; msg = C.ldap_next_entry(l.p, msg) {
 
-		msgValue := reflect.Indirect(reflect.New(outType))
+		msgValue := outValue
+
+		// Ptrs to struct set the out value itself, everything else
+		// use the outType to create a new instance of the structure
+		if outFn != nil {
+			msgValue = reflect.Indirect(reflect.New(outType))
+		}
 
 		if err := l.demarshalEntry(msg, msgValue, attrs); err == errNoData {
 			continue
@@ -264,8 +303,10 @@ func (l *Ldap) demarshalEntryMessage(first *C.LDAPMessage, outFn func(reflect.Va
 			return err
 		}
 
-		if err := outFn(outValue, msgValue); err != nil {
-			return err
+		if outFn != nil {
+			if err := outFn(outValue, msgValue); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -274,11 +315,6 @@ func (l *Ldap) demarshalEntryMessage(first *C.LDAPMessage, outFn func(reflect.Va
 
 func appendSlice(out reflect.Value, value reflect.Value) error {
 	out.Set(reflect.Append(out, value))
-	return nil
-}
-
-func setStruct(out reflect.Value, value reflect.Value) error {
-	out.Set(value)
 	return nil
 }
 
@@ -318,8 +354,8 @@ func (l *Ldap) SearchTree(base, filter string, out interface{}) error {
 			outFn = appendSlice
 		case reflect.Struct:
 			outType = outValue.Type()
-			outFn = setStruct
 			maxResults = 1
+			// ptr to struct sets the value directly so outFn is left as nil
 		}
 
 	case reflect.Func:
@@ -346,7 +382,9 @@ func (l *Ldap) SearchTree(base, filter string, out interface{}) error {
 	attrs := make([]*C.char, 0, outType.NumField())
 	for i := 0; i < outType.NumField(); i++ {
 		f := outType.Field(i)
-		if f.Name != "Dn" {
+		if f.PkgPath != "" {
+			// private field
+		} else if f.Name != "Dn" {
 			attr := C.CString(f.Name)
 			// Go requires the first letter to be upper case in
 			// order for the field to be reflected, but ldap uses
@@ -403,4 +441,68 @@ func (l *Ldap) SearchTree(base, filter string, out interface{}) error {
 	}
 
 	return nil
+}
+
+type SID []byte
+
+const sidRevision = 1
+
+func (s SID) String() string {
+	ret := make([]byte, 0)
+	if len(s) < 8 || s[0] != sidRevision || len(s) != (int(s[1])*4)+8 {
+		return ""
+	}
+
+	ret = append(ret, "S-1-"...)
+	ret = strconv.AppendUint(ret, binary.BigEndian.Uint64(s[:8])&0xFFFFFFFFFFFF, 10)
+
+	for i := 0; i < int(s[1]); i++ {
+		ret = append(ret, "-"...)
+		ret = strconv.AppendUint(ret, uint64(binary.LittleEndian.Uint32(s[8+i*4:])), 10)
+	}
+
+	return string(ret)
+}
+
+func (s SID) Equal(r SID) bool {
+	if len(s) != len(r) {
+		return false
+	}
+
+	for i, a := range s {
+		if a != r[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+var escapes = []string{
+	"\x00", "\\00", "\x01", "\\00", "\x02", "\\02", "\x03", "\\03",
+	"\x04", "\\04", "\x05", "\\05", "\x06", "\\06", "\x07", "\\07",
+	"\x08", "\\08", "\x09", "\\09", "\x0A", "\\0A", "\x0B", "\\08",
+	"\x0C", "\\0C", "\x0D", "\\0D", "\x0E", "\\0E", "\x0F", "\\0F",
+	"\x10", "\\10", "\x11", "\\10", "\x12", "\\12", "\x13", "\\13",
+	"\x14", "\\14", "\x15", "\\15", "\x16", "\\16", "\x17", "\\17",
+	"\x18", "\\18", "\x19", "\\19", "\x1A", "\\1A", "\x1B", "\\18",
+	"\x1C", "\\1C", "\x1D", "\\1D", "\x1E", "\\1E", "\x1F", "\\1F",
+	"\x7F", "\\7F",
+	"(", "\\28",
+	")", "\\29",
+	"&", "\\26",
+	"|", "\\7c",
+	"=", "\\3d",
+	">", "\\3e",
+	"<", "\\3c",
+	"~", "\\7e",
+	"*", "\\2a",
+	"/", "\\2f",
+	"\\", "\\5c",
+}
+
+var escaper = strings.NewReplacer(escapes...)
+
+func Escape(v string) string {
+	return escaper.Replace(v)
 }

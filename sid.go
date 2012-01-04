@@ -58,6 +58,28 @@ func (s SID) String() string {
 	return string(ret)
 }
 
+func (s SID) Domain() (SID, error) {
+	if len(s) < 24 ||
+		s[0] != sidRevision ||
+		binary.BigEndian.Uint64(s) & 0xFFFFFFFFFFFF != 5 ||
+		binary.LittleEndian.Uint32(s[8:]) != 21 {
+		return nil, ErrInvalidSID
+	}
+
+	if len(s) == 24 && s[1] == 4 {
+		return s, nil
+	}
+
+	if len(s) != 28 || s[1] != 5 {
+		return nil, ErrInvalidSID
+	}
+
+	ret := make([]byte, 24)
+	copy(ret, s)
+	ret[1] = 4 // change the length
+	return ret, nil
+}
+
 func (s SID) Equal(r SID) bool {
 	if len(s) != len(r) {
 		return false

@@ -133,21 +133,17 @@ func onSearchDone(data []byte, param string) error {
 }
 
 func descEquals(desc []byte, name string) bool {
-	if len(name) > len(desc) {
+	if len(desc) < len(name) {
 		return false
 	}
 
-	for i, b := range desc {
-		if unicode.ToUpper(rune(b)) != unicode.ToUpper(rune(desc[i])) {
+	for i := 0; i < len(name); i++ {
+		if unicode.ToUpper(rune(desc[i])) != unicode.ToUpper(rune(name[i])) {
 			return false
 		}
 	}
 
-	if len(desc) == len(name) {
-		return true
-	}
-
-	return desc[len(name)] == ';'
+	return len(desc) == len(name) || desc[len(name)] == ';'
 }
 
 func getattr(e *searchEntry, name string) [][]byte {

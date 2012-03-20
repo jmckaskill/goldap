@@ -3,8 +3,8 @@ package ldap
 import (
 	"bytes"
 	"crypto/tls"
-	"encoding/asn1"
 	"encoding/binary"
+	"github.com/jmckaskill/asn1"
 	"io"
 	"net"
 	"net/url"

@@ -1,7 +1,7 @@
 package ldap
 
 import (
-	"encoding/asn1"
+	"github.com/jmckaskill/asn1"
 	"reflect"
 	"strconv"
 	"unicode"

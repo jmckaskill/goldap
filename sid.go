@@ -61,7 +61,7 @@ func (s SID) String() string {
 func (s SID) Domain() (SID, error) {
 	if len(s) < 24 ||
 		s[0] != sidRevision ||
-		binary.BigEndian.Uint64(s) & 0xFFFFFFFFFFFF != 5 ||
+		binary.BigEndian.Uint64(s)&0xFFFFFFFFFFFF != 5 ||
 		binary.LittleEndian.Uint32(s[8:]) != 21 {
 		return nil, ErrInvalidSID
 	}

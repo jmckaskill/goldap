@@ -1,9 +1,9 @@
 package ldap
 
 import (
-	"encoding/asn1"
 	"errors"
 	"fmt"
+	"github.com/jmckaskill/asn1"
 	"reflect"
 )
 

@@ -310,6 +310,10 @@ func (db *DB) search(out interface{}, base string, filter Filter, scope asn1.Enu
 			continue
 		}
 
+		if f.Tag.Get("ldap") == "-" {
+			continue
+		}
+
 		req.Attrs = append(req.Attrs, []byte(f.Name))
 	}
 

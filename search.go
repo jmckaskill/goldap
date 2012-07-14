@@ -241,7 +241,7 @@ func onSearchEntry(data []byte, val reflect.Value) error {
 	return nil
 }
 
-func (db *DB) search(out interface{}, base string, filter Filter, scope asn1.Enumerated) error {
+func (db *DB) search(out interface{}, base ObjectDN, filter Filter, scope asn1.Enumerated) error {
 	req := searchRequest{
 		BaseObject: []byte(base),
 		Scope:      scope,
@@ -328,10 +328,10 @@ func (db *DB) search(out interface{}, base string, filter Filter, scope asn1.Enu
 	return <-done
 }
 
-func (db *DB) SearchTree(out interface{}, base string, filter Filter) error {
+func (db *DB) SearchTree(out interface{}, base ObjectDN, filter Filter) error {
 	return db.search(out, base, filter, wholeSubtreeScope)
 }
 
-func (db *DB) GetObject(out interface{}, dn string) error {
+func (db *DB) GetObject(out interface{}, dn ObjectDN) error {
 	return db.search(out, dn, nil, baseObjectScope)
 }

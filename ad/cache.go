@@ -21,7 +21,7 @@ type ldapObject struct {
 	DisplayName    string
 	ObjectSID      ldap.SID
 	SAMAccountName string
-	Member         []string
+	Member         []ldap.ObjectDN
 	Realm string `ldap:"-"`
 }
 
@@ -94,7 +94,7 @@ func (c *ldapMech) Connect(rw io.ReadWriter) (io.ReadWriter, error) {
 
 type cacheDB struct {
 	*ldap.DB
-	base string
+	base ldap.ObjectDN
 }
 
 // DB represents a connection to an active directory forest. Allowing you to
@@ -112,7 +112,7 @@ type DB struct {
 
 	// the cache maps are locked
 	lk      sync.Mutex
-	dnusers map[string]interface{}
+	dnusers map[ldap.ObjectDN]interface{}
 	prusers map[principal]*User
 }
 
@@ -130,7 +130,7 @@ func New(cred *kerb.Credential, baseAlias string) *DB {
 		dbs:        make(map[string]*cacheDB),
 		sidRealm:   make(map[string]string),
 		realmAlias: make(map[string]string),
-		dnusers:    make(map[string]interface{}),
+		dnusers:    make(map[ldap.ObjectDN]interface{}),
 		prusers:    make(map[principal]*User),
 	}
 
@@ -144,7 +144,7 @@ func New(cred *kerb.Credential, baseAlias string) *DB {
 
 	// Figure out the SID of the base realm
 	parts := strings.Split(cred.Realm(), ".")
-	o, _ := c.LookupDN("CN=Administrator,CN=Users,DC=" + strings.Join(parts, ",DC="))
+	o, _ := c.LookupDN(ldap.ObjectDN("CN=Administrator,CN=Users,DC=" + strings.Join(parts, ",DC=")))
 	if u, _ := o.(*User); u != nil {
 		if dsid, err := u.ObjectSID.Domain(); err == nil {
 			c.sidRealm[dsid.String()] = cred.Realm()
@@ -182,7 +182,7 @@ func (c *DB) findRealms(alias, realm string) {
 	log.Println("Found realm", alias, realm)
 
 	parts := strings.Split(realm, ".")
-	base := "DC=" + strings.Join(parts, ",DC=")
+	base := ldap.ObjectDN("DC=" + strings.Join(parts, ",DC="))
 	db := ldap.Open(fmt.Sprintf("ldap://%s", realm), &c.cfg)
 	c.dbs[realm] = &cacheDB{db, base}
 
@@ -305,9 +305,9 @@ func (c *DB) LookupPrincipal(user, realm string) (*User, error) {
 	return u, nil
 }
 
-func dnToRealm(dn string) string {
+func dnToRealm(dn ldap.ObjectDN) string {
 	realm := []byte{}
-	for _, part := range strings.Split(dn, ",") {
+	for _, part := range strings.Split(string(dn), ",") {
 		upper := strings.ToUpper(part)
 		if strings.HasPrefix(upper, "DC=") {
 			if len(realm) > 0 {
@@ -324,13 +324,13 @@ func dnToRealm(dn string) string {
 // often. This is thread-safe wrt the Lookup functions.
 func (c *DB) FlushCache() {
 	c.lk.Lock()
-	c.dnusers = make(map[string]interface{})
+	c.dnusers = make(map[ldap.ObjectDN]interface{})
 	c.lk.Unlock()
 }
 
 // LookupDN will lookup a DN returning either a *User or a *Group. Lookups are
 // cached and should be flushed every so often by calling FlushCache.
-func (c *DB) LookupDN(dn string) (val interface{}, err error) {
+func (c *DB) LookupDN(dn ldap.ObjectDN) (val interface{}, err error) {
 	c.lk.Lock()
 	u := c.dnusers[dn]
 	c.lk.Unlock()
@@ -339,8 +339,8 @@ func (c *DB) LookupDN(dn string) (val interface{}, err error) {
 		return u, nil
 	}
 
-	if i := strings.Index(dn, ",CN=ForeignSecurityPrincipals,"); i >= 0 {
-		if sid, err := ldap.ParseSID(dn[len("CN="):i]); err == nil {
+	if i := strings.Index(string(dn), ",CN=ForeignSecurityPrincipals,"); i >= 0 {
+		if sid, err := ldap.ParseSID(string(dn[len("CN="):i])); err == nil {
 			val, err := c.LookupSID(sid)
 			return val, err
 		}

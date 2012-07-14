@@ -7,7 +7,6 @@ import (
 	"github.com/jmckaskill/gokerb"
 	"github.com/jmckaskill/goldap"
 	"io"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -169,17 +168,12 @@ func (c *DB) findRealms(alias, realm string) {
 	trusts := []trustedDomain{}
 	c.dbs[realm] = nil
 
-	log.Println("Try realm", alias, realm)
-
 	// Make sure we can get a ticket for this domain before trying to
 	// connect. This way we can filter out realms which we have no chance
 	// of connecting to.
 	if _, err := c.cred.GetTicket("krbtgt/"+realm, nil); err != nil {
-		log.Println(err)
 		return
 	}
-
-	log.Println("Found realm", alias, realm)
 
 	parts := strings.Split(realm, ".")
 	base := ldap.ObjectDN("DC=" + strings.Join(parts, ",DC="))
@@ -189,7 +183,6 @@ func (c *DB) findRealms(alias, realm string) {
 	c.realmAlias[realm] = alias
 
 	if err := db.SearchTree(&trusts, base, filter); err != nil {
-		log.Println(err)
 		return
 	}
 

@@ -180,7 +180,7 @@ func (c *DB) findRealms(alias, realm string) {
 	db := ldap.Open(fmt.Sprintf("ldap://%s", realm), &c.cfg)
 	c.dbs[realm] = &cacheDB{db, base}
 
-	c.realmAlias[realm] = alias
+	c.realmAlias[strings.ToUpper(alias)] = realm
 
 	if err := db.SearchTree(&trusts, base, filter); err != nil {
 		return

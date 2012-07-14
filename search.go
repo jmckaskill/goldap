@@ -9,6 +9,8 @@ import (
 
 type ObjectDN string
 
+func (s ObjectDN) String() string {return string(s)}
+
 var dnType = reflect.TypeOf(ObjectDN(""))
 
 type appendSlice struct {

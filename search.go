@@ -285,7 +285,7 @@ func (db *DB) search(out interface{}, base ObjectDN, filter Filter, scope asn1.E
 			panic("expected function with 1 argument")
 		}
 
-		typ = ft.In(1)
+		typ = ft.In(0)
 		reply = &callFunc{ov, typ, done}
 
 	case reflect.Chan:

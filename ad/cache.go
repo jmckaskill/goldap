@@ -70,12 +70,9 @@ func (c *ldapMech) dial(network, addr string) (net.Conn, error) {
 }
 
 func (c *ldapMech) Connect(rw io.ReadWriter) (io.ReadWriter, error) {
-	serv, err := kerb.ResolveService("ldap", rw.(net.Conn).RemoteAddr().String())
-	if err != nil {
-		serv = "ldap/"+c.addr
-		if strings.HasSuffix(serv, ".") {
-			serv = serv[:len(serv)-1]
-		}
+	serv := "ldap/"+c.addr
+	if strings.HasSuffix(serv, ".") {
+		serv = serv[:len(serv)-1]
 	}
 
 	tkt, err := c.cred.GetTicket(serv, nil)

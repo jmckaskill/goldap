@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"unicode"
+	"unsafe"
 )
 
 type ObjectDN string
@@ -201,17 +202,19 @@ func onSearchEntry(data []byte, val reflect.Value) error {
 
 			case reflect.String:
 				// []string
-				strs := make([]string, len(vals))
-				buf := make([]byte, 0)
-				for _, v := range vals {
-					buf = append(buf, v...)
-				}
-				sbuf := string(buf)
+				strs := reflect.MakeSlice(ft.Type, len(vals), len(vals))
 				for i, v := range vals {
-					strs[i] = sbuf[:len(v)]
-					sbuf = sbuf[len(v):]
+					// We need to convert from a string to
+					// the users own string type. There
+					// doesn't seem to be a way to do this
+					// using reflect, so we fall back and
+					// use unsafe. This is safe because
+					// we've already checked the kind.
+					str := string(v)
+					str2 := reflect.NewAt(t, unsafe.Pointer(&str))
+					strs.Index(i).Set(str2.Elem())
 				}
-				fv.Set(reflect.ValueOf(strs))
+				fv.Set(strs)
 			}
 
 		case reflect.String:

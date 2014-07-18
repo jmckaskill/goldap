@@ -4,13 +4,14 @@ package ad
 import (
 	"errors"
 	"fmt"
-	"github.com/jmckaskill/gokerb"
-	"github.com/jmckaskill/goldap"
 	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/dojodominator/gokerb"
+	"github.com/dojodominator/goldap"
 )
 
 type ldapObject struct {
@@ -21,7 +22,7 @@ type ldapObject struct {
 	ObjectSID      ldap.SID
 	SAMAccountName string
 	Member         []ldap.ObjectDN
-	Realm string `ldap:"-"`
+	Realm          string `ldap:"-"`
 }
 
 type User ldapObject
@@ -70,7 +71,7 @@ func (c *ldapMech) dial(network, addr string) (net.Conn, error) {
 }
 
 func (c *ldapMech) Connect(rw io.ReadWriter) (io.ReadWriter, error) {
-	serv := "ldap/"+c.addr
+	serv := "ldap/" + c.addr
 	if strings.HasSuffix(serv, ".") {
 		serv = serv[:len(serv)-1]
 	}
@@ -344,7 +345,7 @@ func (c *DB) LookupDN(dn ldap.ObjectDN) (val interface{}, err error) {
 
 	obj := ldapObject{Realm: realm}
 	if err := db.GetObject(&obj, dn); err != nil {
-		return nil,  err
+		return nil, err
 	}
 
 	var ret interface{}

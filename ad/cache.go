@@ -22,6 +22,7 @@ type ldapObject struct {
 	ObjectSID      ldap.SID
 	SAMAccountName string
 	Member         []ldap.ObjectDN
+	MemberOf       []ldap.ObjectDN
 	Realm          string `ldap:"-"`
 }
 
@@ -316,6 +317,7 @@ func dnToRealm(dn ldap.ObjectDN) string {
 func (c *DB) FlushCache() {
 	c.lk.Lock()
 	c.dnusers = make(map[ldap.ObjectDN]interface{})
+	c.prusers = make(map[principal]*User)
 	c.lk.Unlock()
 }
 

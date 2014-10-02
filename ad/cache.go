@@ -4,13 +4,15 @@ package ad
 import (
 	"errors"
 	"fmt"
-	"github.com/jmckaskill/gokerb"
-	"github.com/jmckaskill/goldap"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/jmckaskill/gokerb"
+	"github.com/jmckaskill/goldap"
 )
 
 type ldapObject struct {
@@ -21,7 +23,8 @@ type ldapObject struct {
 	ObjectSID      ldap.SID
 	SAMAccountName string
 	Member         []ldap.ObjectDN
-	Realm string `ldap:"-"`
+	MemberOf       []ldap.ObjectDN
+	Realm          string `ldap:"-"`
 }
 
 type User ldapObject
@@ -70,7 +73,7 @@ func (c *ldapMech) dial(network, addr string) (net.Conn, error) {
 }
 
 func (c *ldapMech) Connect(rw io.ReadWriter) (io.ReadWriter, error) {
-	serv := "ldap/"+c.addr
+	serv := "ldap/" + c.addr
 	if strings.HasSuffix(serv, ".") {
 		serv = serv[:len(serv)-1]
 	}
@@ -121,6 +124,7 @@ type principal struct {
 // trust chain is recursively followed on creation to find all of the domain
 // aliases. If you change the trust chain at all, you need to create a new db.
 func New(cred *kerb.Credential, baseAlias string) *DB {
+	log.Printf("Getting new db")
 	c := &DB{
 		cred:       cred,
 		dbs:        make(map[string]*cacheDB),
@@ -136,6 +140,7 @@ func New(cred *kerb.Credential, baseAlias string) *DB {
 		return m.dial(net, addr)
 	}
 
+	log.Printf("Finding realms")
 	c.findRealms(baseAlias, cred.Realm())
 
 	// Figure out the SID of the base realm
@@ -169,6 +174,7 @@ func (c *DB) findRealms(alias, realm string) {
 	// connect. This way we can filter out realms which we have no chance
 	// of connecting to.
 	if _, err := c.cred.GetTicket("krbtgt/"+realm, nil); err != nil {
+		log.Printf("Can't get ticket")
 		return
 	}
 
@@ -180,10 +186,13 @@ func (c *DB) findRealms(alias, realm string) {
 	c.realmAlias[strings.ToUpper(alias)] = realm
 
 	if err := db.SearchTree(&trusts, base, filter); err != nil {
+		log.Printf("Returning error in searchtree")
 		return
 	}
 
+	log.Printf("Before trust loop")
 	for _, trust := range trusts {
+		log.Printf("Trust loop")
 		realm := strings.ToUpper(trust.TrustPartner)
 		if _, ok := c.dbs[realm]; ok {
 			continue
@@ -278,6 +287,7 @@ func (c *DB) LookupPrincipal(user, realm string) (*User, error) {
 
 	filter := ldap.Equal{"SAMAccountName", []byte(user)}
 
+	log.Printf("Avaliable realms: %+v", c.dbs)
 	db := c.dbs[realm]
 	if db == nil {
 		return nil, ErrInvalidRealm
@@ -315,6 +325,7 @@ func dnToRealm(dn ldap.ObjectDN) string {
 func (c *DB) FlushCache() {
 	c.lk.Lock()
 	c.dnusers = make(map[ldap.ObjectDN]interface{})
+	c.prusers = make(map[principal]*User)
 	c.lk.Unlock()
 }
 
@@ -344,7 +355,7 @@ func (c *DB) LookupDN(dn ldap.ObjectDN) (val interface{}, err error) {
 
 	obj := ldapObject{Realm: realm}
 	if err := db.GetObject(&obj, dn); err != nil {
-		return nil,  err
+		return nil, err
 	}
 
 	var ret interface{}

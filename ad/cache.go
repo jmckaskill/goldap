@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -123,6 +124,7 @@ type principal struct {
 // trust chain is recursively followed on creation to find all of the domain
 // aliases. If you change the trust chain at all, you need to create a new db.
 func New(cred *kerb.Credential, baseAlias string) *DB {
+	log.Printf("Getting new db")
 	c := &DB{
 		cred:       cred,
 		dbs:        make(map[string]*cacheDB),
@@ -138,6 +140,7 @@ func New(cred *kerb.Credential, baseAlias string) *DB {
 		return m.dial(net, addr)
 	}
 
+	log.Printf("Finding realms")
 	c.findRealms(baseAlias, cred.Realm())
 
 	// Figure out the SID of the base realm
@@ -171,6 +174,7 @@ func (c *DB) findRealms(alias, realm string) {
 	// connect. This way we can filter out realms which we have no chance
 	// of connecting to.
 	if _, err := c.cred.GetTicket("krbtgt/"+realm, nil); err != nil {
+		log.Printf("Can't get ticket")
 		return
 	}
 
@@ -182,10 +186,13 @@ func (c *DB) findRealms(alias, realm string) {
 	c.realmAlias[strings.ToUpper(alias)] = realm
 
 	if err := db.SearchTree(&trusts, base, filter); err != nil {
+		log.Printf("Returning error in searchtree")
 		return
 	}
 
+	log.Printf("Before trust loop")
 	for _, trust := range trusts {
+		log.Printf("Trust loop")
 		realm := strings.ToUpper(trust.TrustPartner)
 		if _, ok := c.dbs[realm]; ok {
 			continue
@@ -280,6 +287,7 @@ func (c *DB) LookupPrincipal(user, realm string) (*User, error) {
 
 	filter := ldap.Equal{"SAMAccountName", []byte(user)}
 
+	log.Printf("Avaliable realms: %+v", c.dbs)
 	db := c.dbs[realm]
 	if db == nil {
 		return nil, ErrInvalidRealm

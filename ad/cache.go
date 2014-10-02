@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dojodominator/gokerb"
-	"github.com/dojodominator/goldap"
+	"github.com/jmckaskill/gokerb"
+	"github.com/jmckaskill/goldap"
 )
 
 type ldapObject struct {
